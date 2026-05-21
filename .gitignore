@@ -38,3 +38,21 @@ run/
 **/src/generated/**/.cache/
 repo/
 !**/src/**/repo/
+
+# NeoForge decompile artifacts
+META-INF/
+assets/
+com/
+data/
+net/
+mcp/
+forge.exc
+forge.sas
+forge.srg
+neoforge.mixins.json
+neoforged_logo.png
+mcplogo.png
+pack.mcmeta
+reports/
+url.png
+.claude/

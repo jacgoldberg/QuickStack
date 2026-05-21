@@ -1,5 +1,6 @@
 package com.TickingClockWork.quickstack.server;
 
+import com.TickingClockWork.quickstack.QuickStackConfig;
 import com.TickingClockWork.quickstack.QuickStackMod;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -27,7 +28,6 @@ import java.util.Set;
 @EventBusSubscriber(modid = QuickStackMod.MOD_ID)
 public class QuickStackHandler {
 
-    private static final int RADIUS = 8;
     private static final int FLIGHT_TICKS = 30;
 
     // One entry per chest: tracks when the last item heading there should be discarded
@@ -65,9 +65,10 @@ public class QuickStackHandler {
         Set<Container> processedContainers = new HashSet<>();
         int movedTotal = 0;
 
+        int radius = QuickStackConfig.RADIUS.get();
         for (BlockPos pos : BlockPos.betweenClosed(
-                center.offset(-RADIUS, -RADIUS, -RADIUS),
-                center.offset(RADIUS, RADIUS, RADIUS)
+                center.offset(-radius, -radius, -radius),
+                center.offset(radius, radius, radius)
         )) {
             if (!isApprovedInventory(level, pos)) continue;
 

@@ -3,7 +3,9 @@ package com.TickingClockWork.quickstack;
 import com.TickingClockWork.quickstack.network.QuickStackPayload;
 
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
@@ -14,8 +16,9 @@ public class QuickStackMod {
     public static final String MOD_ID = "quickstack";
     public static final Logger LOGGER = LogUtils.getLogger();
 
-    public QuickStackMod(IEventBus modEventBus) {
+    public QuickStackMod(IEventBus modEventBus, ModContainer modContainer) {
         modEventBus.addListener(this::registerPayloads);
+        modContainer.registerConfig(ModConfig.Type.COMMON, QuickStackConfig.SPEC);
     }
 
     private void registerPayloads(RegisterPayloadHandlersEvent event) {
