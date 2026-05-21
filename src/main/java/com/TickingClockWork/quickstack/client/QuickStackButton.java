@@ -31,7 +31,10 @@ public class QuickStackButton {
         int y = screen.getGuiTop() + QuickStackConfig.BUTTON_OFFSET_Y.get();
 
         event.addListener(new Button(x, y, 20, 18, Component.empty(),
-                btn -> PacketDistributor.sendToServer(new QuickStackPayload()),
+                btn -> {
+                    boolean shift = net.minecraft.client.gui.screens.Screen.hasShiftDown();
+                    PacketDistributor.sendToServer(new QuickStackPayload(shift));
+                },
                 btn -> Component.translatable("button.quickstack.quick_stack")) {
             @Override
             protected void renderWidget(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {

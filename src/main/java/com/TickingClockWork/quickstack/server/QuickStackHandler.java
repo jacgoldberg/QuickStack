@@ -3,6 +3,10 @@ package com.TickingClockWork.quickstack.server;
 import com.TickingClockWork.quickstack.QuickStackConfig;
 import com.TickingClockWork.quickstack.QuickStackMod;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
@@ -29,8 +33,8 @@ import java.util.Set;
 public class QuickStackHandler {
 
     private static final int FLIGHT_TICKS = 30;
+    private static final String MISC_CHEST_KEY = "quickstack_misc_chest";
 
-    // One entry per chest: tracks when the last item heading there should be discarded
     private record OpenChest(ServerLevel level, BlockPos pos, List<Integer> entityIds, long closeAt) {}
 
     private static final List<OpenChest> OPEN_CHESTS = new ArrayList<>();
@@ -52,18 +56,68 @@ public class QuickStackHandler {
                 net.minecraft.world.entity.Entity e = level.getEntity(id);
                 if (e != null) e.discard();
             }
-            // Send block event 1 with param 0 = close the lid
             level.blockEvent(oc.pos(), level.getBlockState(oc.pos()).getBlock(), 1, 0);
             it.remove();
         }
     }
 
-    public static int quickStack(ServerPlayer player) {
+    public static void assignMiscChest(ServerPlayer player, BlockPos pos) {
+        if (!isApprovedInventory((ServerLevel) player.level(), pos)) {
+            player.displayClientMessage(
+                    net.minecraft.network.chat.Component.translatable("message.quickstack.misc_chest_invalid"),
+                    true
+            );
+            return;
+        }
+        CompoundTag data = player.getPersistentData();
+        ListTag list = data.contains(MISC_CHEST_KEY, Tag.TAG_LIST)
+                ? data.getList(MISC_CHEST_KEY, Tag.TAG_COMPOUND)
+                : new ListTag();
+
+        // If already assigned, remove it (toggle off)
+        for (int i = 0; i < list.size(); i++) {
+            if (NbtUtils.readBlockPos(list.getCompound(i), "pos").orElse(BlockPos.ZERO).equals(pos)) {
+                list.remove(i);
+                data.put(MISC_CHEST_KEY, list);
+                player.displayClientMessage(
+                        net.minecraft.network.chat.Component.translatable("message.quickstack.misc_chest_removed")
+                                .withStyle(net.minecraft.ChatFormatting.RED),
+                        true
+                );
+                return;
+            }
+        }
+
+        CompoundTag entry = new CompoundTag();
+        entry.put("pos", NbtUtils.writeBlockPos(pos));
+        list.add(entry);
+        data.put(MISC_CHEST_KEY, list);
+
+        player.displayClientMessage(
+                net.minecraft.network.chat.Component.translatable("message.quickstack.misc_chest_assigned")
+                        .withStyle(net.minecraft.ChatFormatting.GREEN),
+                true
+        );
+    }
+
+    public static List<BlockPos> getMiscChests(ServerPlayer player) {
+        CompoundTag data = player.getPersistentData();
+        if (!data.contains(MISC_CHEST_KEY, Tag.TAG_LIST)) return List.of();
+        ListTag list = data.getList(MISC_CHEST_KEY, Tag.TAG_COMPOUND);
+        List<BlockPos> result = new ArrayList<>();
+        for (int i = 0; i < list.size(); i++) {
+            NbtUtils.readBlockPos(list.getCompound(i), "pos").ifPresent(result::add);
+        }
+        return result;
+    }
+
+    public static void quickStack(ServerPlayer player, boolean shift) {
         ServerLevel level = (ServerLevel) player.level();
         BlockPos center = player.blockPosition();
         Inventory playerInventory = player.getInventory();
         Set<Container> processedContainers = new HashSet<>();
-        int movedTotal = 0;
+        List<BlockPos> miscChests = getMiscChests(player);
+        Set<BlockPos> miscChestSet = new HashSet<>(miscChests);
 
         int radius = QuickStackConfig.RADIUS.get();
         for (BlockPos pos : BlockPos.betweenClosed(
@@ -71,6 +125,9 @@ public class QuickStackHandler {
                 center.offset(radius, radius, radius)
         )) {
             if (!isApprovedInventory(level, pos)) continue;
+
+            // Always skip misc inventories during normal quick stack
+            if (miscChestSet.contains(pos)) continue;
 
             BlockEntity blockEntity = level.getBlockEntity(pos);
             if (!(blockEntity instanceof Container container)) continue;
@@ -88,7 +145,6 @@ public class QuickStackHandler {
                 int moved = insertMatchingItem(container, playerStack);
 
                 if (moved > 0) {
-                    movedTotal += moved;
                     playerInventory.setItem(playerSlot, playerStack);
                     container.setChanged();
                     spawnFlyingItem(level, player, pos.immutable(), visualStack);
@@ -96,8 +152,32 @@ public class QuickStackHandler {
             }
         }
 
+        // Shift mode: dump remaining non-empty slots into the first misc inventory in range
+        if (shift && !miscChests.isEmpty()) {
+            for (BlockPos miscPos : miscChests) {
+                if (center.distSqr(miscPos) > (long) radius * radius) continue;
+                BlockEntity be = level.getBlockEntity(miscPos);
+                if (!(be instanceof Container miscContainer)) continue;
+
+                for (int playerSlot = 9; playerSlot < 36; playerSlot++) {
+                    ItemStack playerStack = playerInventory.getItem(playerSlot);
+                    if (playerStack.isEmpty()) continue;
+
+                    ItemStack visualStack = playerStack.copy();
+                    visualStack.setCount(1);
+
+                    int moved = insertAnyItem(miscContainer, playerStack);
+                    if (moved > 0) {
+                        playerInventory.setItem(playerSlot, playerStack);
+                        miscContainer.setChanged();
+                        spawnFlyingItem(level, player, miscPos.immutable(), visualStack);
+                    }
+                }
+                break; // only use the first misc inventory in range
+            }
+        }
+
         playerInventory.setChanged();
-        return movedTotal;
     }
 
     private static void spawnFlyingItem(ServerLevel level, ServerPlayer player, BlockPos targetPos, ItemStack stack) {
@@ -115,7 +195,6 @@ public class QuickStackHandler {
 
         long closeAt = level.getGameTime() + FLIGHT_TICKS;
 
-        // Find existing OpenChest entry for this pos and add to it, otherwise create one
         for (int i = 0; i < OPEN_CHESTS.size(); i++) {
             OpenChest oc = OPEN_CHESTS.get(i);
             if (oc.level() == level && oc.pos().equals(targetPos)) {
@@ -127,7 +206,6 @@ public class QuickStackHandler {
             }
         }
 
-        // Send block event 1 with param 1 = open the lid
         level.blockEvent(targetPos, level.getBlockState(targetPos).getBlock(), 1, 1);
         List<Integer> ids = new ArrayList<>();
         ids.add(itemEntity.getId());
@@ -159,6 +237,38 @@ public class QuickStackHandler {
             movedTotal += amount;
         }
 
+        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+            if (playerStack.isEmpty()) return movedTotal;
+            if (!container.getItem(slot).isEmpty()) continue;
+            int amount = Math.min(playerStack.getMaxStackSize(), playerStack.getCount());
+            ItemStack newStack = playerStack.copy();
+            newStack.setCount(amount);
+            container.setItem(slot, newStack);
+            playerStack.shrink(amount);
+            movedTotal += amount;
+        }
+
+        return movedTotal;
+    }
+
+    // Like insertMatchingItem but accepts any item into any available space
+    private static int insertAnyItem(Container container, ItemStack playerStack) {
+        int movedTotal = 0;
+
+        // Fill partial stacks first
+        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+            if (playerStack.isEmpty()) return movedTotal;
+            ItemStack containerStack = container.getItem(slot);
+            if (containerStack.isEmpty() || !ItemStack.isSameItemSameComponents(playerStack, containerStack)) continue;
+            int space = containerStack.getMaxStackSize() - containerStack.getCount();
+            if (space <= 0) continue;
+            int amount = Math.min(space, playerStack.getCount());
+            containerStack.grow(amount);
+            playerStack.shrink(amount);
+            movedTotal += amount;
+        }
+
+        // Then empty slots
         for (int slot = 0; slot < container.getContainerSize(); slot++) {
             if (playerStack.isEmpty()) return movedTotal;
             if (!container.getItem(slot).isEmpty()) continue;

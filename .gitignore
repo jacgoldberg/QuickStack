@@ -39,13 +39,13 @@ run/
 repo/
 !**/src/**/repo/
 
-# NeoForge decompile artifacts
-META-INF/
-assets/
-com/
-data/
-net/
-mcp/
+# NeoForge decompile artifacts at repo root (not src/)
+/META-INF/
+/assets/
+/com/
+/data/
+/net/
+/mcp/
 forge.exc
 forge.sas
 forge.srg

@@ -1,5 +1,6 @@
 package com.TickingClockWork.quickstack;
 
+import com.TickingClockWork.quickstack.network.AssignMiscChestPayload;
 import com.TickingClockWork.quickstack.network.QuickStackPayload;
 
 import net.neoforged.bus.api.IEventBus;
@@ -27,6 +28,11 @@ public class QuickStackMod {
                 QuickStackPayload.TYPE,
                 QuickStackPayload.STREAM_CODEC,
                 QuickStackPayload::handle
+        );
+        registrar.playToServer(
+                AssignMiscChestPayload.TYPE,
+                AssignMiscChestPayload.STREAM_CODEC,
+                AssignMiscChestPayload::handle
         );
     }
 }
