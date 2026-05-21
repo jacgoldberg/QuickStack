@@ -1,0 +1,29 @@
+package com.TickingClockWork.quickstack;
+
+import com.TickingClockWork.quickstack.network.QuickStackPayload;
+
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import org.slf4j.Logger;
+import com.mojang.logging.LogUtils;
+
+@Mod(QuickStackMod.MOD_ID)
+public class QuickStackMod {
+
+    public static final String MOD_ID = "quickstack";
+    public static final Logger LOGGER = LogUtils.getLogger();
+
+    public QuickStackMod(IEventBus modEventBus) {
+        modEventBus.addListener(this::registerPayloads);
+    }
+
+    private void registerPayloads(RegisterPayloadHandlersEvent event) {
+        var registrar = event.registrar(MOD_ID);
+        registrar.playToServer(
+                QuickStackPayload.TYPE,
+                QuickStackPayload.STREAM_CODEC,
+                QuickStackPayload::handle
+        );
+    }
+}
