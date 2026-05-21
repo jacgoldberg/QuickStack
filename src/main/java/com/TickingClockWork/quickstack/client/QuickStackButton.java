@@ -32,8 +32,8 @@ public class QuickStackButton {
 
         event.addListener(new Button(x, y, 20, 18, Component.empty(),
                 btn -> {
-                    boolean shift = net.minecraft.client.gui.screens.Screen.hasShiftDown();
-                    PacketDistributor.sendToServer(new QuickStackPayload(shift));
+                    boolean dump = QuickStackKeybinds.isDumpModifierHeld();
+                    PacketDistributor.sendToServer(new QuickStackPayload(dump));
                 },
                 btn -> Component.translatable("button.quickstack.quick_stack")) {
             @Override

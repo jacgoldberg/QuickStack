@@ -30,16 +30,31 @@ public class QuickStackKeybinds {
             "key.category.quickstack"
     );
 
-    // True while the key is physically held down
+    public static final KeyMapping QUICK_STACK_DUMP = new KeyMapping(
+            "key.quickstack.quick_stack_dump",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_LEFT_SHIFT,
+            "key.category.quickstack"
+    );
+
     public static boolean isKeyHeld = false;
-    // True if a right-click assignment happened during this keypress — suppresses quick stack on release
     private static boolean assignedThisPress = false;
+
+    public static boolean isDumpModifierHeld() {
+        long window = Minecraft.getInstance().getWindow().getWindow();
+        InputConstants.Key key = QUICK_STACK_DUMP.getKey();
+        if (key.getType() == InputConstants.Type.KEYSYM) {
+            return InputConstants.isKeyDown(window, key.getValue());
+        }
+        return false;
+    }
 
     @EventBusSubscriber(modid = QuickStackMod.MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ModEvents {
         @SubscribeEvent
         public static void registerKeyMappings(RegisterKeyMappingsEvent event) {
             event.register(QUICK_STACK);
+            event.register(QUICK_STACK_DUMP);
         }
     }
 
@@ -57,11 +72,8 @@ public class QuickStackKeybinds {
             } else if (event.getAction() == GLFW.GLFW_RELEASE) {
                 isKeyHeld = false;
                 if (!assignedThisPress) {
-                    boolean shift = InputConstants.isKeyDown(
-                            Minecraft.getInstance().getWindow().getWindow(), GLFW.GLFW_KEY_LEFT_SHIFT)
-                            || InputConstants.isKeyDown(
-                            Minecraft.getInstance().getWindow().getWindow(), GLFW.GLFW_KEY_RIGHT_SHIFT);
-                    PacketDistributor.sendToServer(new QuickStackPayload(shift));
+                    boolean dump = isDumpModifierHeld();
+                    PacketDistributor.sendToServer(new QuickStackPayload(dump));
                 }
                 assignedThisPress = false;
             }
@@ -69,7 +81,6 @@ public class QuickStackKeybinds {
 
         @SubscribeEvent
         public static void onMouseInput(InputEvent.MouseButton.Pre event) {
-            // Right-click while V is held — assign misc chest
             if (!isKeyHeld) return;
             if (event.getButton() != GLFW.GLFW_MOUSE_BUTTON_RIGHT) return;
             if (event.getAction() != GLFW.GLFW_PRESS) return;
@@ -81,7 +92,7 @@ public class QuickStackKeybinds {
             BlockPos pos = ((BlockHitResult) mc.hitResult).getBlockPos();
             PacketDistributor.sendToServer(new AssignMiscChestPayload(pos));
             assignedThisPress = true;
-            event.setCanceled(true); // prevent the normal right-click interaction
+            event.setCanceled(true);
         }
     }
 }

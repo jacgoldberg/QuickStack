@@ -1,5 +1,6 @@
 {
   "key.quickstack.quick_stack": "Quick Stack Nearby",
+  "key.quickstack.quick_stack_dump": "Quick Stack Dump Modifier",
   "key.category.quickstack": "Quick Stack",
   "button.quickstack.quick_stack": "Quick Stack",
   "message.quickstack.misc_chest_assigned": "Misc inventory assigned!",
