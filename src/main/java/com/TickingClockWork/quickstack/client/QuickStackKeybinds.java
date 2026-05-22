@@ -63,6 +63,7 @@ public class QuickStackKeybinds {
 
         @SubscribeEvent
         public static void onKeyInput(InputEvent.Key event) {
+            if (Minecraft.getInstance().screen != null) return;
             int key = QUICK_STACK.getKey().getValue();
             if (event.getKey() != key) return;
 

@@ -6,9 +6,7 @@ license="${mod_license}"
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
-description='''
-Adds a Terraria-style quick stack feature that moves matching items from the player's inventory into nearby containers.
-'''
+description="Adds a Terraria-style quick stack feature that moves matching items from the player's inventory into nearby containers."
 
 [[dependencies.${mod_id}]]
     modId="neoforge"
@@ -21,5 +19,12 @@ Adds a Terraria-style quick stack feature that moves matching items from the pla
     modId="minecraft"
     mandatory=true
     versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="cloth_config"
+    mandatory=true
+    versionRange="[15,)"
     ordering="NONE"
     side="BOTH"

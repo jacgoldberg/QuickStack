@@ -5,5 +5,17 @@
   "button.quickstack.quick_stack": "Quick Stack",
   "message.quickstack.misc_chest_assigned": "Misc inventory assigned!",
   "message.quickstack.misc_chest_removed": "Misc inventory removed.",
-  "message.quickstack.misc_chest_invalid": "That's not a valid container."
+  "message.quickstack.misc_chest_invalid": "That's not a valid container.",
+
+  "config.quickstack.title": "Quick Stack Configuration",
+  "config.quickstack.category.general": "General",
+  "config.quickstack.category.button": "Inventory Button",
+  "config.quickstack.radius": "Scan Radius",
+  "config.quickstack.radius.tooltip": "Radius in blocks to scan for nearby containers (1-16).",
+  "config.quickstack.min_slots": "Minimum Container Slots",
+  "config.quickstack.min_slots.tooltip": "Containers with fewer slots than this are ignored. Furnaces have 3, brewing stands have 5, dispensers have 9.",
+  "config.quickstack.button_offset_x": "Button X Offset",
+  "config.quickstack.button_offset_x.tooltip": "Horizontal pixel offset of the Quick Stack button from the inventory background's top-left corner.",
+  "config.quickstack.button_offset_y": "Button Y Offset",
+  "config.quickstack.button_offset_y.tooltip": "Vertical pixel offset of the Quick Stack button from the inventory background's top-left corner."
 }
