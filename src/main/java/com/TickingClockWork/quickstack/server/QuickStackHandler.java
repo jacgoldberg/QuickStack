@@ -13,9 +13,6 @@ import net.minecraft.world.Container;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.ShulkerBoxBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 
@@ -284,10 +281,8 @@ public class QuickStackHandler {
     }
 
     private static boolean isApprovedInventory(ServerLevel level, BlockPos pos) {
-        Block block = level.getBlockState(pos).getBlock();
-        return block == Blocks.CHEST
-                || block == Blocks.TRAPPED_CHEST
-                || block == Blocks.BARREL
-                || block instanceof ShulkerBoxBlock;
+        BlockEntity be = level.getBlockEntity(pos);
+        if (!(be instanceof Container container)) return false;
+        return container.getContainerSize() >= QuickStackConfig.MIN_SLOTS.get();
     }
 }
