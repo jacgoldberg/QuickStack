@@ -3,22 +3,24 @@ package com.TickingClockWork.quickstack.server;
 import com.TickingClockWork.quickstack.QuickStackConfig;
 import com.TickingClockWork.quickstack.QuickStackMod;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
+import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -112,7 +114,7 @@ public class QuickStackHandler {
         ServerLevel level = (ServerLevel) player.level();
         BlockPos center = player.blockPosition();
         Inventory playerInventory = player.getInventory();
-        Set<Container> processedContainers = new HashSet<>();
+        Set<IItemHandler> processedHandlers = new HashSet<>();
         List<BlockPos> miscChests = getMiscChests(player);
         Set<BlockPos> miscChestSet = new HashSet<>(miscChests);
 
@@ -121,29 +123,27 @@ public class QuickStackHandler {
                 center.offset(-radius, -radius, -radius),
                 center.offset(radius, radius, radius)
         )) {
-            if (!isApprovedInventory(level, pos)) continue;
-
-            // Always skip misc inventories during normal quick stack
             if (miscChestSet.contains(pos)) continue;
 
-            BlockEntity blockEntity = level.getBlockEntity(pos);
-            if (!(blockEntity instanceof Container container)) continue;
-            if (processedContainers.contains(container)) continue;
-            processedContainers.add(container);
+            IItemHandler handler = getHandler(level, pos);
+            if (handler == null) continue;
+            if (handler.getSlots() < QuickStackConfig.MIN_SLOTS.get()) continue;
+            if (processedHandlers.contains(handler)) continue;
+            processedHandlers.add(handler);
 
             for (int playerSlot = 9; playerSlot < 36; playerSlot++) {
                 ItemStack playerStack = playerInventory.getItem(playerSlot);
                 if (playerStack.isEmpty()) continue;
-                if (!containerContainsMatchingItem(container, playerStack)) continue;
+                if (!handlerContainsMatchingItem(handler, playerStack)) continue;
 
                 ItemStack visualStack = playerStack.copy();
                 visualStack.setCount(1);
 
-                int moved = insertMatchingItem(container, playerStack);
+                int moved = insertMatchingItem(handler, playerStack);
 
                 if (moved > 0) {
                     playerInventory.setItem(playerSlot, playerStack);
-                    container.setChanged();
+                    notifyBlockEntity(level, pos);
                     spawnFlyingItem(level, player, pos.immutable(), visualStack);
                 }
             }
@@ -153,8 +153,9 @@ public class QuickStackHandler {
         if (shift && !miscChests.isEmpty()) {
             for (BlockPos miscPos : miscChests) {
                 if (center.distSqr(miscPos) > (long) radius * radius) continue;
-                BlockEntity be = level.getBlockEntity(miscPos);
-                if (!(be instanceof Container miscContainer)) continue;
+
+                IItemHandler miscHandler = getHandler(level, miscPos);
+                if (miscHandler == null) continue;
 
                 for (int playerSlot = 9; playerSlot < 36; playerSlot++) {
                     ItemStack playerStack = playerInventory.getItem(playerSlot);
@@ -163,10 +164,10 @@ public class QuickStackHandler {
                     ItemStack visualStack = playerStack.copy();
                     visualStack.setCount(1);
 
-                    int moved = insertAnyItem(miscContainer, playerStack);
+                    int moved = insertAnyItem(miscHandler, playerStack);
                     if (moved > 0) {
                         playerInventory.setItem(playerSlot, playerStack);
-                        miscContainer.setChanged();
+                        notifyBlockEntity(level, miscPos);
                         spawnFlyingItem(level, player, miscPos.immutable(), visualStack);
                     }
                 }
@@ -175,6 +176,18 @@ public class QuickStackHandler {
         }
 
         playerInventory.setChanged();
+    }
+
+    private static IItemHandler getHandler(ServerLevel level, BlockPos pos) {
+        // Prefer null (face-agnostic) — gives full unrestricted access
+        IItemHandler handler = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
+        if (handler != null) return handler;
+        // Fall back to faces for mods that only register per-face handlers
+        for (Direction dir : Direction.values()) {
+            handler = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, dir);
+            if (handler != null) return handler;
+        }
+        return null;
     }
 
     private static void spawnFlyingItem(ServerLevel level, ServerPlayer player, BlockPos targetPos, ItemStack stack) {
@@ -209,80 +222,88 @@ public class QuickStackHandler {
         OPEN_CHESTS.add(new OpenChest(level, targetPos, ids, closeAt));
     }
 
-    private static boolean containerContainsMatchingItem(Container container, ItemStack playerStack) {
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
-            ItemStack containerStack = container.getItem(slot);
-            if (!containerStack.isEmpty() && ItemStack.isSameItemSameComponents(playerStack, containerStack)) {
-                return true;
-            }
+    private static boolean handlerContainsMatchingItem(IItemHandler handler, ItemStack playerStack) {
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
+            ItemStack stack = handler.getStackInSlot(slot);
+            if (!stack.isEmpty() && ItemStack.isSameItemSameComponents(playerStack, stack)) return true;
         }
         return false;
     }
 
-    private static int insertMatchingItem(Container container, ItemStack playerStack) {
+    private static int insertMatchingItem(IItemHandler handler, ItemStack playerStack) {
         int movedTotal = 0;
 
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+        // Fill partial stacks of matching items first
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
             if (playerStack.isEmpty()) return movedTotal;
-            ItemStack containerStack = container.getItem(slot);
-            if (containerStack.isEmpty() || !ItemStack.isSameItemSameComponents(playerStack, containerStack)) continue;
-            int space = containerStack.getMaxStackSize() - containerStack.getCount();
-            if (space <= 0) continue;
-            int amount = Math.min(space, playerStack.getCount());
-            containerStack.grow(amount);
-            playerStack.shrink(amount);
-            movedTotal += amount;
+            ItemStack existing = handler.getStackInSlot(slot);
+            if (existing.isEmpty() || !ItemStack.isSameItemSameComponents(playerStack, existing)) continue;
+
+            ItemStack toInsert = playerStack.copy();
+            ItemStack remainder = handler.insertItem(slot, toInsert, false);
+            int moved = toInsert.getCount() - remainder.getCount();
+            playerStack.shrink(moved);
+            movedTotal += moved;
         }
 
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+        // Then fill empty slots
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
             if (playerStack.isEmpty()) return movedTotal;
-            if (!container.getItem(slot).isEmpty()) continue;
-            int amount = Math.min(playerStack.getMaxStackSize(), playerStack.getCount());
-            ItemStack newStack = playerStack.copy();
-            newStack.setCount(amount);
-            container.setItem(slot, newStack);
-            playerStack.shrink(amount);
-            movedTotal += amount;
+            if (!handler.getStackInSlot(slot).isEmpty()) continue;
+
+            ItemStack toInsert = playerStack.copy();
+            ItemStack remainder = handler.insertItem(slot, toInsert, false);
+            int moved = toInsert.getCount() - remainder.getCount();
+            playerStack.shrink(moved);
+            movedTotal += moved;
         }
 
         return movedTotal;
     }
 
-    // Like insertMatchingItem but accepts any item into any available space
-    private static int insertAnyItem(Container container, ItemStack playerStack) {
+    private static int insertAnyItem(IItemHandler handler, ItemStack playerStack) {
         int movedTotal = 0;
 
         // Fill partial stacks first
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
             if (playerStack.isEmpty()) return movedTotal;
-            ItemStack containerStack = container.getItem(slot);
-            if (containerStack.isEmpty() || !ItemStack.isSameItemSameComponents(playerStack, containerStack)) continue;
-            int space = containerStack.getMaxStackSize() - containerStack.getCount();
-            if (space <= 0) continue;
-            int amount = Math.min(space, playerStack.getCount());
-            containerStack.grow(amount);
-            playerStack.shrink(amount);
-            movedTotal += amount;
+            ItemStack existing = handler.getStackInSlot(slot);
+            if (existing.isEmpty() || !ItemStack.isSameItemSameComponents(playerStack, existing)) continue;
+
+            ItemStack toInsert = playerStack.copy();
+            ItemStack remainder = handler.insertItem(slot, toInsert, false);
+            int moved = toInsert.getCount() - remainder.getCount();
+            playerStack.shrink(moved);
+            movedTotal += moved;
         }
 
         // Then empty slots
-        for (int slot = 0; slot < container.getContainerSize(); slot++) {
+        for (int slot = 0; slot < handler.getSlots(); slot++) {
             if (playerStack.isEmpty()) return movedTotal;
-            if (!container.getItem(slot).isEmpty()) continue;
-            int amount = Math.min(playerStack.getMaxStackSize(), playerStack.getCount());
-            ItemStack newStack = playerStack.copy();
-            newStack.setCount(amount);
-            container.setItem(slot, newStack);
-            playerStack.shrink(amount);
-            movedTotal += amount;
+            if (!handler.getStackInSlot(slot).isEmpty()) continue;
+
+            ItemStack toInsert = playerStack.copy();
+            ItemStack remainder = handler.insertItem(slot, toInsert, false);
+            int moved = toInsert.getCount() - remainder.getCount();
+            playerStack.shrink(moved);
+            movedTotal += moved;
         }
 
         return movedTotal;
     }
 
+    private static void notifyBlockEntity(ServerLevel level, BlockPos pos) {
+        var be = level.getBlockEntity(pos);
+        if (be != null) {
+            be.setChanged();
+            var state = level.getBlockState(pos);
+            level.sendBlockUpdated(pos, state, state, 2 | 4);
+        }
+    }
+
     private static boolean isApprovedInventory(ServerLevel level, BlockPos pos) {
-        BlockEntity be = level.getBlockEntity(pos);
-        if (!(be instanceof Container container)) return false;
-        return container.getContainerSize() >= QuickStackConfig.MIN_SLOTS.get();
+        IItemHandler handler = getHandler(level, pos);
+        if (handler == null) return false;
+        return handler.getSlots() >= QuickStackConfig.MIN_SLOTS.get();
     }
 }
