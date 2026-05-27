@@ -2,6 +2,7 @@ package com.TickingClockWork.quickstack.server;
 
 import com.TickingClockWork.quickstack.QuickStackConfig;
 import com.TickingClockWork.quickstack.QuickStackMod;
+import com.TickingClockWork.quickstack.compat.SableCompat;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -22,6 +23,8 @@ import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.event.tick.LevelTickEvent;
 import net.neoforged.neoforge.items.IItemHandler;
 
+import net.neoforged.fml.ModList;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -35,28 +38,45 @@ public class QuickStackHandler {
     private static final String MISC_CHEST_KEY = "quickstack_misc_chest";
 
     private record OpenChest(ServerLevel level, BlockPos pos, List<Integer> entityIds, long closeAt) {}
+    private record OpenSableChest(SableCompat.SubLevelInventory sli, List<Integer> entityIds, long closeAt) {}
 
     private static final List<OpenChest> OPEN_CHESTS = new ArrayList<>();
+    private static final List<OpenSableChest> OPEN_SABLE_CHESTS = new ArrayList<>();
 
     @SubscribeEvent
     public static void onLevelTick(LevelTickEvent.Post event) {
         if (!(event.getLevel() instanceof ServerLevel level)) return;
-        if (OPEN_CHESTS.isEmpty()) return;
 
         long now = level.getGameTime();
 
-        Iterator<OpenChest> it = OPEN_CHESTS.iterator();
-        while (it.hasNext()) {
-            OpenChest oc = it.next();
-            if (oc.level() != level) continue;
-            if (now < oc.closeAt()) continue;
+        if (!OPEN_CHESTS.isEmpty()) {
+            Iterator<OpenChest> it = OPEN_CHESTS.iterator();
+            while (it.hasNext()) {
+                OpenChest oc = it.next();
+                if (oc.level() != level) continue;
+                if (now < oc.closeAt()) continue;
 
-            for (int id : oc.entityIds()) {
-                net.minecraft.world.entity.Entity e = level.getEntity(id);
-                if (e != null) e.discard();
+                for (int id : oc.entityIds()) {
+                    net.minecraft.world.entity.Entity e = level.getEntity(id);
+                    if (e != null) e.discard();
+                }
+                level.blockEvent(oc.pos(), level.getBlockState(oc.pos()).getBlock(), 1, 0);
+                it.remove();
             }
-            level.blockEvent(oc.pos(), level.getBlockState(oc.pos()).getBlock(), 1, 0);
-            it.remove();
+        }
+
+        if (!OPEN_SABLE_CHESTS.isEmpty()) {
+            Iterator<OpenSableChest> it = OPEN_SABLE_CHESTS.iterator();
+            while (it.hasNext()) {
+                OpenSableChest oc = it.next();
+                if (now < oc.closeAt()) continue;
+                for (int id : oc.entityIds()) {
+                    net.minecraft.world.entity.Entity e = level.getEntity(id);
+                    if (e != null) e.discard();
+                }
+                SableCompat.fireChestEvent(oc.sli(), 0);
+                it.remove();
+            }
         }
     }
 
@@ -149,6 +169,30 @@ public class QuickStackHandler {
             }
         }
 
+        // Sable sub-level containers
+        if (ModList.get().isLoaded("sable")) {
+            for (SableCompat.SubLevelInventory sli : SableCompat.findNearbyHandlers(level, center, radius)) {
+                IItemHandler handler = sli.handler();
+                if (processedHandlers.contains(handler)) continue;
+                processedHandlers.add(handler);
+
+                for (int playerSlot = 9; playerSlot < 36; playerSlot++) {
+                    ItemStack playerStack = playerInventory.getItem(playerSlot);
+                    if (playerStack.isEmpty()) continue;
+                    if (!handlerContainsMatchingItem(handler, playerStack)) continue;
+
+                    ItemStack visualStack = playerStack.copy();
+                    visualStack.setCount(1);
+
+                    int moved = insertMatchingItem(handler, playerStack);
+                    if (moved > 0) {
+                        playerInventory.setItem(playerSlot, playerStack);
+                        spawnFlyingItemSable(level, player, sli, visualStack);
+                    }
+                }
+            }
+        }
+
         // Shift mode: dump remaining non-empty slots into the first misc inventory in range
         if (shift && !miscChests.isEmpty()) {
             for (BlockPos miscPos : miscChests) {
@@ -190,6 +234,24 @@ public class QuickStackHandler {
         return null;
     }
 
+    private static void openSableChest(ServerLevel level, SableCompat.SubLevelInventory sli, int entityId) {
+        long closeAt = level.getGameTime() + FLIGHT_TICKS;
+        for (int i = 0; i < OPEN_SABLE_CHESTS.size(); i++) {
+            OpenSableChest oc = OPEN_SABLE_CHESTS.get(i);
+            if (oc.sli().localPos().equals(sli.localPos()) && oc.sli().plot() == sli.plot()) {
+                oc.entityIds().add(entityId);
+                if (closeAt > oc.closeAt()) {
+                    OPEN_SABLE_CHESTS.set(i, new OpenSableChest(sli, oc.entityIds(), closeAt));
+                }
+                return;
+            }
+        }
+        SableCompat.fireChestEvent(sli, 1);
+        List<Integer> ids = new ArrayList<>();
+        ids.add(entityId);
+        OPEN_SABLE_CHESTS.add(new OpenSableChest(sli, ids, closeAt));
+    }
+
     private static void spawnFlyingItem(ServerLevel level, ServerPlayer player, BlockPos targetPos, ItemStack stack) {
         Vec3 start = player.position().add(0, 1.2, 0);
         Vec3 end = new Vec3(targetPos.getX() + 0.5, targetPos.getY() + 0.5, targetPos.getZ() + 0.5);
@@ -200,7 +262,7 @@ public class QuickStackHandler {
 
         ItemEntity itemEntity = new ItemEntity(level, start.x, start.y, start.z, stack, vx, vy, vz);
         itemEntity.setNoGravity(true);
-        itemEntity.setPickUpDelay(FLIGHT_TICKS);
+        itemEntity.setPickUpDelay(Integer.MAX_VALUE);
         level.addFreshEntity(itemEntity);
 
         long closeAt = level.getGameTime() + FLIGHT_TICKS;
@@ -220,6 +282,23 @@ public class QuickStackHandler {
         List<Integer> ids = new ArrayList<>();
         ids.add(itemEntity.getId());
         OPEN_CHESTS.add(new OpenChest(level, targetPos, ids, closeAt));
+    }
+
+    private static void spawnFlyingItemSable(ServerLevel level, ServerPlayer player, SableCompat.SubLevelInventory sli, ItemStack stack) {
+        Vec3 start = player.position().add(0, 1.2, 0);
+        BlockPos targetPos = sli.worldPos();
+        Vec3 end = new Vec3(targetPos.getX() + 0.5, targetPos.getY() + 0.5, targetPos.getZ() + 0.5);
+
+        double vx = (end.x - start.x) / FLIGHT_TICKS;
+        double vy = (end.y - start.y) / FLIGHT_TICKS;
+        double vz = (end.z - start.z) / FLIGHT_TICKS;
+
+        ItemEntity itemEntity = new ItemEntity(level, start.x, start.y, start.z, stack, vx, vy, vz);
+        itemEntity.setNoGravity(true);
+        itemEntity.setPickUpDelay(Integer.MAX_VALUE);
+        level.addFreshEntity(itemEntity);
+
+        openSableChest(level, sli, itemEntity.getId());
     }
 
     private static boolean handlerContainsMatchingItem(IItemHandler handler, ItemStack playerStack) {

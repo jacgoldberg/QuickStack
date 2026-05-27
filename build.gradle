@@ -28,6 +28,7 @@ sourceSets.main.resources {
 repositories {
     maven { url "https://maven.shedaniel.me/" }
     maven { url "https://maven.architectury.dev/" }
+    maven { url "https://maven.ryanhcode.dev/releases" }
 }
 
 base {
@@ -102,6 +103,7 @@ dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
     implementation "me.shedaniel.cloth:cloth-config-neoforge:15.0.140"
     localRuntime "me.shedaniel.cloth:cloth-config-neoforge:15.0.140"
+    compileOnly "dev.ryanhcode.sable:sable-common-1.21.1:1.2.2"
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
